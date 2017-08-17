@@ -113,11 +113,13 @@ def readField(d, pos):
         (v, p, l, obj) = readVarInt(d, p)
         obj.datatype = DataTypes.VarInt
         obj.fieldid = fieldnum
+        obj.position = p - 1
         return (v, p, datatype, fieldnum, l, obj)    
     elif datatype == 1: # 64-bit
         (v,p, obj) = readQWORD(d, p)
         obj.datatype = datatype
         obj.fieldid = fieldnum
+        obj.position = p - 1
         return (v, p, datatype, fieldnum, 8, obj)    
     elif datatype == 2: # varlen string/blob
         (fieldLen, p, l, obj) = readVarInt(d, p)    # get string length
@@ -125,13 +127,13 @@ def readField(d, pos):
         # attempt to read the values as an object and see what happens
         obj.fieldid = fieldnum
         obj.datatype = DataTypes.LenDelim
-        print "var length, looks like this: %s" % (d[p:p+fieldLen].encode("string-escape"))
+        subData = d[p:p+fieldLen]
+        print "var length, looks like this: %s" % (subData.encode("string-escape"))
         resp = raw_input( ">> parse as string? [y/n] ")
         if resp == "n":
             # parse as obj  TODO this is fucked up and doesnt return lens right
             # this needs to be done multiple times
             startpos = 0
-            subData = d[p:p+fieldLen]
             # skim over sub object data and attempt to read fields until data runs out
             while startpos < len(subData):
                 (subValue, postReadPos, subDataType, subFieldNum, subLength, subObj) = readField(subData, startpos)
@@ -141,12 +143,12 @@ def readField(d, pos):
                 
 
             # return data gathered about *this* object, no the subs
-            retval =  (subValue, p+fieldLen, datatype, fieldnum, fieldLen, obj)       
+            retval =  (subData, p+fieldLen, datatype, fieldnum, fieldLen, obj)       
 
         else:
-            obj.value = d[p:p+fieldLen]
+            obj.value = subData
         
-            retval =  (d[p:p+fieldLen], p+fieldLen, datatype, fieldnum, fieldLen, obj)       
+            retval =  (subData, p+fieldLen, datatype, fieldnum, fieldLen, obj)       
         print "----------------------"
         return retval
     elif datatype == 5: # 32-bit value
@@ -210,6 +212,7 @@ def PrintObjects(obj):
 
 outputObject = []
 def ParseString (instring, startpos=0):
+    print "data len: %i" % (len(instring))
     pos = startpos
     while pos < len(instring):
         (d, p, t, fid, l, obj)  = readField(instring,pos);
@@ -239,14 +242,10 @@ if __name__ == "__main__":
         ParseString(args.rawString)
     elif args.fileName != None:
         print "loading file.."
-        f = open (args.fileName, "r")
+        f = open (args.fileName, "rb")
         data = f.read()
         f.close()
-        print data[0:4]
-        if data[0:4] == [0,0,0,0]:
-            print "data has leading 0"
-            data = data[4:]
-        
+         
         ParseString(data)
 
     PrintObjects(outputObject)
