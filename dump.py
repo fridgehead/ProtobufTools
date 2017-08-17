@@ -3,6 +3,9 @@ import traceback
 import struct
 import argparse
 
+
+creationCount = 0
+
 class DataTypes:
     VarInt, Bit64, LenDelim, StartGroup, EndGroup, Bit32, Empty = range(7)
 
@@ -11,14 +14,17 @@ class DataTypes:
 '''
 class Field:
     def __init__ (self):
+        global creationCount
         self.position = 0 # position of the data in the stream
         self.datatype = DataTypes.Empty # data type
         self.value = None
         self.fieldid = 0
-        self.children = [] 
+        creationCount+=1
 
     def addChild(self, child):
-        self.children += [child]
+        if type(self.value) != list:
+            self.value = []
+        self.value.append(child)
 
 
 
@@ -26,7 +32,6 @@ class Field:
     Decode a varInt and move cursor
 '''
 def readVarInt(buffer, pos):
-  print "readVarInt: - %s-" % buffer
   mask = (1 << 64) - 1
   result = 0
   shift = 0
@@ -45,7 +50,6 @@ def readVarInt(buffer, pos):
       retObj.datatype = DataTypes.VarInt
       retObj.value = result
       retObj.position = pos
-      print "readvarint result %i" % result
       return (result, pos, pos-startPos, retObj)
     shift += 7
     if shift >= 64:
@@ -103,7 +107,7 @@ def readField(d, pos):
     (v, p) = readBYTE(d, pos);
     datatype = v & 7;
     fieldnum = v >> 3;
-    print "datatype : %i " % datatype
+    print "ReadField - datatype : %i " % datatype
 
     if datatype == 0:       # varint
         (v, p, l, obj) = readVarInt(d, p)
@@ -116,22 +120,33 @@ def readField(d, pos):
         obj.fieldid = fieldnum
         return (v, p, datatype, fieldnum, 8, obj)    
     elif datatype == 2: # varlen string/blob
-        (v, p, l, obj) = readVarInt(d, p)    # get string length
-        retval =  (d[p:p+v], p+v, datatype, fieldnum, v, obj)       
+        (fieldLen, p, l, obj) = readVarInt(d, p)    # get string length
         # try to determine if this is a string or an embedded message
         # attempt to read the values as an object and see what happens
         obj.fieldid = fieldnum
         obj.datatype = DataTypes.LenDelim
-        obj.value = d[p:p+v]
-        print "var length, looks like this: %s" % (obj.value.encode("string-escape"))
-        resp = raw_input( "read variable length, parse as string? [y/n] ")
+        print "var length, looks like this: %s" % (d[p:p+fieldLen].encode("string-escape"))
+        resp = raw_input( ">> parse as string? [y/n] ")
         if resp == "n":
-            # parse as obj
-            (newv, newp, newdatatype, fieldnum, l, newobj) = readField(d[p:p+v], 0)
-             
-            obj.value = newobj
-            obj.addChild(newobj)
+            # parse as obj  TODO this is fucked up and doesnt return lens right
+            # this needs to be done multiple times
+            startpos = 0
+            subData = d[p:p+fieldLen]
+            # skim over sub object data and attempt to read fields until data runs out
+            while startpos < len(subData):
+                (subValue, postReadPos, subDataType, subFieldNum, subLength, subObj) = readField(subData, startpos)
+                print "read subobject of len %i , %i, %i" % (subLength, postReadPos, fieldLen)
+                obj.addChild(subObj)
+                startpos = postReadPos
+                
+
+            # return data gathered about *this* object, no the subs
+            retval =  (subValue, p+fieldLen, datatype, fieldnum, fieldLen, obj)       
+
+        else:
+            obj.value = d[p:p+fieldLen]
         
+            retval =  (d[p:p+fieldLen], p+fieldLen, datatype, fieldnum, fieldLen, obj)       
         print "----------------------"
         return retval
     elif datatype == 5: # 32-bit value
@@ -164,12 +179,17 @@ def PrintObject(obj, level=0):
         for o in obj:
             PrintObject(o, level+2)
         print s + "}"
+        return
     elif type(obj.value) == list:
-        print s + "{"
+        print s + "%i object {" % (obj.fieldid)
         for o in obj.value:
             PrintObject(o, level+2)
         print s + "}"
-    elif type(obj.value) == str:
+        return
+     
+    # primitives
+    outStr = s   
+    if type(obj.value) == str:
         
         print s + "%i string: %s" % (obj.fieldid, obj.value)
     elif type (obj.value) == int:
@@ -178,11 +198,6 @@ def PrintObject(obj, level=0):
         print s + "%i float: %.10f" % (obj.fieldid, obj.value)
     elif type (obj.value) == long:
         print s + "%i long: %i" % (obj.fieldid, obj.value)
-    elif isinstance (obj.value, Field):
-        print s + "%i object {" % (obj.fieldid)
-        for o in obj.children:
-            PrintObject(o, level+2)
-        print s + "}"
     else:
         print type(obj.value)
 
@@ -193,34 +208,13 @@ def PrintObjects(obj):
     PrintObject(obj)
     pass
 
-def ParseString (instring):
-    outputObject = []
-    pos = 0
+outputObject = []
+def ParseString (instring, startpos=0):
+    pos = startpos
     while pos < len(instring):
         (d, p, t, fid, l, obj)  = readField(instring,pos);
         pos = p
         outputObject.append(obj)
-    PrintObjects(outputObject)
-'''
-        if obj.datatype == DataTypes.Bit64:    
-            print "--- Field %i ---" % obj.fieldid
-            print "// (64bit): %.10f" % obj.value
-         
-        elif obj.datatype == DataTypes.LenDelim:
-            print "--- Field %i ---" % obj.fieldid
-            if type(obj.value) == str:
-                print "//   as string: %s" % obj.value 
-            else :
-                print "//   Subobject:"
-        elif t == 3:
-            print "// (embedded type?)"
-        
-        elif obj.datatype == DataTypes.Bit32:
-            print "--- Field %i ---" % obj.fieldid
-            print "// (32bit): %i" % obj.value
-        else:
-            print "// Unknown type %i" % t
-'''
 
 # main
 if __name__ == "__main__":
@@ -255,3 +249,5 @@ if __name__ == "__main__":
         
         ParseString(data)
 
+    PrintObjects(outputObject)
+    print str(creationCount)
