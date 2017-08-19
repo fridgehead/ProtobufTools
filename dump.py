@@ -137,31 +137,31 @@ def readField(d, pos):
         testlen += 1
         print "lengthD: %i lengthSub: %i" % (testlen , len(subData))
         print "if its an object its field is: %i datat:%i" % (testfieldnum, testdatatype)
-        resp = 'y'
+        processAsObject = False
         if testlen < len(subData):
             print "most likely a sub object"
             # this is the only case we're interested in
             # automatically parse this as an object
-            resp = 'n'
+            processAsObject = True
         else :
             if testdatatype == 2:
                 print "probably a string"
             elif testdatatype == 1:
                 print "most likely a long"
-                resp = 'n'
+                processAsObject = True
             elif testdatatype == 0:
                 print "most likely a varint"
-                resp = 'n'
+                processAsObject = True
             elif testdatatype == 5:
                 print "most likely a 32bit"
-                resp = 'n'
+                processAsObject = True
 
             else:
                 print "Most likely a string"
 
 
         #resp = raw_input( ">> parse as string? [y/n] ")
-        if resp == "n":
+        if processAsObject == True:
             # parse as obj  TODO this is fucked up and doesnt return lens right
             # this needs to be done multiple times
             startpos = 0
