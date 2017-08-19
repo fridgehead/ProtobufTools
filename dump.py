@@ -126,7 +126,41 @@ def readField(d, pos):
         obj.datatype = DataTypes.LenDelim
         subData = d[p:p+fieldLen]
         print "var length, looks like this: %s" % (subData.encode("string-escape"))
-        resp = raw_input( ">> parse as string? [y/n] ")
+
+        # take a guess to see if this is a string or not
+        # read the next two bytes, an embedded message should decode into
+        # sensible values.
+        (testval, _) = readBYTE(subData, 0);
+        testdatatype = testval & 7;
+        testfieldnum = testval >> 3;
+        (testlen, _, _, _) = readVarInt(subData,1)
+        testlen += 1
+        print "lengthD: %i lengthSub: %i" % (testlen , len(subData))
+        print "if its an object its field is: %i datat:%i" % (testfieldnum, testdatatype)
+        resp = 'y'
+        if testlen < len(subData):
+            print "most likely a sub object"
+            # this is the only case we're interested in
+            # automatically parse this as an object
+            resp = 'n'
+        else :
+            if testdatatype == 2:
+                print "probably a string"
+            elif testdatatype == 1:
+                print "most likely a long"
+                resp = 'n'
+            elif testdatatype == 0:
+                print "most likely a varint"
+                resp = 'n'
+            elif testdatatype == 5:
+                print "most likely a 32bit"
+                resp = 'n'
+
+            else:
+                print "Most likely a string"
+
+
+        #resp = raw_input( ">> parse as string? [y/n] ")
         if resp == "n":
             # parse as obj  TODO this is fucked up and doesnt return lens right
             # this needs to be done multiple times
