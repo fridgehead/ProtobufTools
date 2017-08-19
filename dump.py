@@ -49,7 +49,7 @@ def readVarInt(buffer, pos):
       retObj = Field()
       retObj.datatype = DataTypes.VarInt
       retObj.value = result
-      retObj.position = pos
+      retObj.position = pos - 2
       return (result, pos, pos-startPos, retObj)
     shift += 7
     if shift >= 64:
@@ -63,7 +63,7 @@ def readQWORD(d, pos):
     try:
         v = struct.unpack("<Q", d[pos:pos+8])[0]
         v = d[pos:pos+8]
-        retObj.position = pos
+        retObj.position = pos - 2
         retObj.value = struct.unpack('d', v)[0]
         retObj.datatype = DataTypes.Bit64
     except:
@@ -77,10 +77,9 @@ def readDWORD(d, pos):
     retObj = Field()
     try:
         v = struct.unpack("<L", d[pos:pos+4])[0]
-        retObj.position = pos
+        retObj.position = pos - 2
         retObj.value = v
         retObj.datatype = DataTypes.Bit32
-        retObj.position = pos
     except:
         print "Exception in readDWORD"
         print sys.exc_info()
@@ -113,13 +112,11 @@ def readField(d, pos):
         (v, p, l, obj) = readVarInt(d, p)
         obj.datatype = DataTypes.VarInt
         obj.fieldid = fieldnum
-        obj.position = p - 1
         return (v, p, datatype, fieldnum, l, obj)    
     elif datatype == 1: # 64-bit
         (v,p, obj) = readQWORD(d, p)
         obj.datatype = datatype
         obj.fieldid = fieldnum
-        obj.position = p - 1
         return (v, p, datatype, fieldnum, 8, obj)    
     elif datatype == 2: # varlen string/blob
         (fieldLen, p, l, obj) = readVarInt(d, p)    # get string length
@@ -139,6 +136,7 @@ def readField(d, pos):
                 (subValue, postReadPos, subDataType, subFieldNum, subLength, subObj) = readField(subData, startpos)
                 print "read subobject of len %i , %i, %i" % (subLength, postReadPos, fieldLen)
                 obj.addChild(subObj)
+                subObj.position += obj.position + 3
                 startpos = postReadPos
                 
 
@@ -183,7 +181,7 @@ def PrintObject(obj, level=0):
         print s + "}"
         return
     elif type(obj.value) == list:
-        print s + "%i object {" % (obj.fieldid)
+        print s + "%i object @%i {" % (obj.fieldid, obj.position)
         for o in obj.value:
             PrintObject(o, level+2)
         print s + "}"
@@ -193,13 +191,13 @@ def PrintObject(obj, level=0):
     outStr = s   
     if type(obj.value) == str:
         
-        print s + "%i string: %s" % (obj.fieldid, obj.value)
+        print s + "%i string @%i: %s" % (obj.fieldid, obj.position, obj.value)
     elif type (obj.value) == int:
-        print s + "%i int: %i" % (obj.fieldid, obj.value)
+        print s + "%i int: @%i: %i" % (obj.fieldid, obj.position, obj.value)
     elif type (obj.value) == float:
-        print s + "%i float: %.10f" % (obj.fieldid, obj.value)
+        print s + "%i float @%i: %.10f" % (obj.fieldid, obj.position, obj.value)
     elif type (obj.value) == long:
-        print s + "%i long: %i" % (obj.fieldid, obj.value)
+        print s + "%i long @%i: %i" % (obj.fieldid, obj.position, obj.value)
     else:
         print type(obj.value)
 
