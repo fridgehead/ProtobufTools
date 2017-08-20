@@ -205,21 +205,26 @@ def isString(d):
         print traceback.print_exc()
         return 1
 
+def logOutput(string, filestream = None):
+    print string
+    if filestream is not None:
+        filestream.write (string + "\r\n")
 
-def PrintObject(obj, level=0):
+def PrintObject(obj, level=0, filestream = None):
     level += 1
     s = " " * level 
     if type(obj) == list: 
-        print s + "{"
+        logOutput( s + "{", filestream)
         for o in obj:
-            PrintObject(o, level+2)
-        print s + "}"
+            PrintObject(o, level+2, filestream)
+        logOutput( s + "}", filestream)
         return
     elif type(obj.value) == list:
-        print s + "%i object @%i {" % (obj.fieldid, obj.position)
+        #print s + "%i object @%i {" % (obj.fieldid, obj.position)
+        logOutput(s + "'" + str(obj.fieldid) + "' : {", filestream)
         for o in obj.value:
-            PrintObject(o, level+2)
-        print s + "}"
+            PrintObject(o, level+2, filestream)
+        logOutput (s + "}")
         return
      
     # primitives
@@ -227,20 +232,33 @@ def PrintObject(obj, level=0):
     if type(obj.value) == str:
         
         print s + "%i string @%i: %s" % (obj.fieldid, obj.position, obj.value)
+        logOutput(s + "'" + str(obj.fieldid) + "' : '" + obj.value + "'", filestream)
     elif type (obj.value) == int:
         print s + "%i int: @%i: %i" % (obj.fieldid, obj.position, obj.value)
+        logOutput(s + "'" + str(obj.fieldid) + "' : " + str(obj.value), filestream )
     elif type (obj.value) == float:
         print s + "%i float @%i: %.10f" % (obj.fieldid, obj.position, obj.value)
+        logOutput(s + "'" + str(obj.fieldid) + "' : " + str(obj.value), filestream )
     elif type (obj.value) == long:
         print s + "%i long @%i: %i" % (obj.fieldid, obj.position, obj.value)
+        logOutput(s + "'" + str(obj.fieldid) + "' : " + str(obj.value), filestream)
     else:
         print type(obj.value)
 
     
 
 # print an object to some sort of json-like format
-def PrintObjects(obj):
-    PrintObject(obj)
+def PrintObjects(obj, jsonFile=None):
+
+    if jsonFile is not None:
+        f = open (jsonFile, "w")
+         
+        PrintObject(obj, filestream=f)
+        f.close()
+    else:
+        PrintObject(obj)
+
+        
     pass
 
 outputObject = []
@@ -256,9 +274,15 @@ def ParseString (instring, startpos=0):
 if __name__ == "__main__":
    
     parser = argparse.ArgumentParser(description="dump them buffs eh")
-    parser.add_argument("--str", help="the string to decode", dest="inString")
-    parser.add_argument("--raw", help="the string is raw, rather than bytes", dest="rawString")
-    parser.add_argument("--file", help="file to load", dest="fileName")
+    group = parser.add_mutually_exclusive_group(required=True)
+
+    group.add_argument("--str", help="the string to decode", dest="inString")
+    group.add_argument("--raw", help="the string is raw, rather than bytes", dest="rawString")
+    group.add_argument("--file", help="file to load", dest="fileName")
+
+    parser.add_argument("--outjson", help="dump data to json", dest="jsonOut", nargs="?")
+
+    
 
 
     args = parser.parse_args()
@@ -281,5 +305,4 @@ if __name__ == "__main__":
          
         ParseString(data)
 
-    PrintObjects(outputObject)
-    print str(creationCount)
+    PrintObjects(outputObject, jsonFile=args.jsonOut)
