@@ -49,7 +49,6 @@ def readVarInt(buffer, pos):
       retObj = Field()
       retObj.datatype = DataTypes.VarInt
       retObj.value = result
-      retObj.position = pos - 2
       return (result, pos, pos-startPos, retObj)
     shift += 7
     if shift >= 64:
@@ -77,7 +76,6 @@ def readDWORD(d, pos):
     retObj = Field()
     try:
         v = struct.unpack("<L", d[pos:pos+4])[0]
-        retObj.position = pos - 2
         retObj.value = v
         retObj.datatype = DataTypes.Bit32
     except:
@@ -103,6 +101,7 @@ def readBYTE(d, pos):
 '''
 def readField(d, pos):
     # read field and type info
+    objpos = pos
     (v, p) = readBYTE(d, pos);
     datatype = v & 7;
     fieldnum = v >> 3;
@@ -112,11 +111,13 @@ def readField(d, pos):
         (v, p, l, obj) = readVarInt(d, p)
         obj.datatype = DataTypes.VarInt
         obj.fieldid = fieldnum
+        obj.position = objpos
         return (v, p, datatype, fieldnum, l, obj)    
     elif datatype == 1: # 64-bit
         (v,p, obj) = readQWORD(d, p)
         obj.datatype = datatype
         obj.fieldid = fieldnum
+        obj.position = objpos
         return (v, p, datatype, fieldnum, 8, obj)    
     elif datatype == 2: # varlen string/blob
         (fieldLen, p, l, obj) = readVarInt(d, p)    # get string length
@@ -124,6 +125,7 @@ def readField(d, pos):
         # attempt to read the values as an object and see what happens
         obj.fieldid = fieldnum
         obj.datatype = DataTypes.LenDelim
+        obj.position = objpos
         subData = d[p:p+fieldLen]
         print "var length, looks like this: %s" % (subData.encode("string-escape"))
 
@@ -138,7 +140,7 @@ def readField(d, pos):
         print "lengthD: %i lengthSub: %i" % (testlen , len(subData))
         print "if its an object its field is: %i datat:%i" % (testfieldnum, testdatatype)
         processAsObject = False
-        if testlen < len(subData):
+        if testlen < fieldLen:
             print "most likely a sub object"
             # this is the only case we're interested in
             # automatically parse this as an object
@@ -159,33 +161,32 @@ def readField(d, pos):
             else:
                 print "Most likely a string"
 
-
-        #resp = raw_input( ">> parse as string? [y/n] ")
         if processAsObject == True:
-            # parse as obj  TODO this is fucked up and doesnt return lens right
             # this needs to be done multiple times
             startpos = 0
             # skim over sub object data and attempt to read fields until data runs out
-            while startpos < len(subData):
-                (subValue, postReadPos, subDataType, subFieldNum, subLength, subObj) = readField(subData, startpos)
-                print "read subobject of len %i , %i, %i" % (subLength, postReadPos, fieldLen)
+            # TODO:
+            # make this pass enture data stream with start+len rather than sub-sections of the data
+            # its fucking the char pos stuff up atm
+            while startpos < fieldLen: 
+                (subValue, postReadPos, subDataType, subFieldNum, subLength, subObj) = readField(d, p+startpos)
                 obj.addChild(subObj)
-                subObj.position += obj.position + 3
-                startpos = postReadPos
-                
+                subObj.position = p + startpos
+                startpos = postReadPos - p
 
             # return data gathered about *this* object, no the subs
             retval =  (subData, p+fieldLen, datatype, fieldnum, fieldLen, obj)       
 
         else:
             obj.value = subData
-        
+            obj.position = p 
             retval =  (subData, p+fieldLen, datatype, fieldnum, fieldLen, obj)       
         print "----------------------"
         return retval
     elif datatype == 5: # 32-bit value
         (v,p, obj) = readDWORD(d, p)
         obj.fieldid = fieldnum
+        obj.position = objpos
         return (v, p, datatype, fieldnum, 4, obj)
     else:
         print "Unknown type: %d [%x]\n" % (datatype, pos)
