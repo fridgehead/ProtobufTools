@@ -5,9 +5,18 @@ import argparse
 
 
 creationCount = 0
+args = None
+
+
+def debugPrint(inp):
+    if args.debug == True:
+        print inp
 
 class DataTypes:
     VarInt, Bit64, LenDelim, StartGroup, EndGroup, Bit32, Empty = range(7)
+
+
+
 
 '''
     A protobuf field
@@ -15,7 +24,8 @@ class DataTypes:
 class Field:
     def __init__ (self):
         global creationCount
-        self.position = 0 # position of the data in the stream
+        self.position = 0   # position of the data in the stream
+        self.length = 0     # length in byte stream
         self.datatype = DataTypes.Empty # data type
         self.value = None
         self.fieldid = 0
@@ -62,12 +72,11 @@ def readQWORD(d, pos):
     try:
         v = struct.unpack("<Q", d[pos:pos+8])[0]
         v = d[pos:pos+8]
-        retObj.position = pos - 2
         retObj.value = struct.unpack('d', v)[0]
         retObj.datatype = DataTypes.Bit64
     except:
-        print "Exception in readQWORD"
-        print sys.exc_info()
+        debugPrint ("Exception in readQWORD")
+        debugPrint( sys.exc_info())
         return (None, pos, retObj)
     pos += 8
     return (v, pos, retObj);
@@ -79,8 +88,8 @@ def readDWORD(d, pos):
         retObj.value = v
         retObj.datatype = DataTypes.Bit32
     except:
-        print "Exception in readDWORD"
-        print sys.exc_info()
+        debugPrint( "Exception in readDWORD")
+        debugPrint( sys.exc_info())
         return (None, pos)
     pos += 4
     return (v, pos, retObj);
@@ -89,8 +98,8 @@ def readBYTE(d, pos):
     try:
         v = struct.unpack("<B", d[pos:pos+1])[0]
     except:
-        print "Exception in readBYTE"
-        print sys.exc_info()
+        debugPrint( "Exception in readBYTE")
+        debugPrint( sys.exc_info())
         return (None, pos)
     pos += 1
     return (v, pos);
@@ -105,19 +114,21 @@ def readField(d, pos):
     (v, p) = readBYTE(d, pos);
     datatype = v & 7;
     fieldnum = v >> 3;
-    print "ReadField - datatype : %i " % datatype
+    debugPrint( "ReadField - datatype : %i " % datatype)
 
     if datatype == 0:       # varint
         (v, p, l, obj) = readVarInt(d, p)
         obj.datatype = DataTypes.VarInt
         obj.fieldid = fieldnum
         obj.position = objpos
+        obj.length = l + 1
         return (v, p, datatype, fieldnum, l, obj)    
     elif datatype == 1: # 64-bit
         (v,p, obj) = readQWORD(d, p)
         obj.datatype = datatype
         obj.fieldid = fieldnum
         obj.position = objpos
+        obj.length = 8
         return (v, p, datatype, fieldnum, 8, obj)    
     elif datatype == 2: # varlen string/blob
         (fieldLen, p, l, obj) = readVarInt(d, p)    # get string length
@@ -126,8 +137,9 @@ def readField(d, pos):
         obj.fieldid = fieldnum
         obj.datatype = DataTypes.LenDelim
         obj.position = objpos
+        obj.length = l + 2
         subData = d[p:p+fieldLen]
-        print "var length, looks like this: %s" % (subData.encode("string-escape"))
+        debugPrint( "var length, looks like this: %s" % (subData.encode("string-escape")))
 
         # take a guess to see if this is a string or not
         # read the next two bytes, an embedded message should decode into
@@ -137,29 +149,29 @@ def readField(d, pos):
         testfieldnum = testval >> 3;
         (testlen, _, _, _) = readVarInt(subData,1)
         testlen += 1
-        print "lengthD: %i lengthSub: %i" % (testlen , len(subData))
-        print "if its an object its field is: %i datat:%i" % (testfieldnum, testdatatype)
+        debugPrint( "lengthD: %i lengthSub: %i" % (testlen , len(subData)))
+        debugPrint( "if its an object its field is: %i datat:%i" % (testfieldnum, testdatatype))
         processAsObject = False
         if testlen < fieldLen:
-            print "most likely a sub object"
+            debugPrint( "most likely a sub object")
             # this is the only case we're interested in
             # automatically parse this as an object
             processAsObject = True
         else :
             if testdatatype == 2:
-                print "probably a string"
+                debugPrint( "probably a string")
             elif testdatatype == 1:
-                print "most likely a long"
+                debugPrint( "most likely a long")
                 processAsObject = True
             elif testdatatype == 0:
-                print "most likely a varint"
+                debugPrint( "most likely a varint")
                 processAsObject = True
             elif testdatatype == 5:
-                print "most likely a 32bit"
+                debugPrint( "most likely a 32bit")
                 processAsObject = True
 
             else:
-                print "Most likely a string"
+                debugPrint( "Most likely a string")
 
         if processAsObject == True:
             # this needs to be done multiple times
@@ -168,28 +180,33 @@ def readField(d, pos):
             # TODO:
             # make this pass enture data stream with start+len rather than sub-sections of the data
             # its fucking the char pos stuff up atm
+            
             while startpos < fieldLen: 
                 (subValue, postReadPos, subDataType, subFieldNum, subLength, subObj) = readField(d, p+startpos)
                 obj.addChild(subObj)
                 subObj.position = p + startpos
+                #subObj.length = subLength + 1
+                
                 startpos = postReadPos - p
-
-            # return data gathered about *this* object, no the subs
+            # return data gathered about *this* object, not the subs
+            obj.length = fieldLen + 1
             retval =  (subData, p+fieldLen, datatype, fieldnum, fieldLen, obj)       
 
         else:
             obj.value = subData
             obj.position = p 
+            obj.length = fieldLen + 1
             retval =  (subData, p+fieldLen, datatype, fieldnum, fieldLen, obj)       
-        print "----------------------"
+        debugPrint( "----------------------")
         return retval
     elif datatype == 5: # 32-bit value
         (v,p, obj) = readDWORD(d, p)
+        obj.length = 4 
         obj.fieldid = fieldnum
         obj.position = objpos
         return (v, p, datatype, fieldnum, 4, obj)
     else:
-        print "Unknown type: %d [%x]\n" % (datatype, pos)
+        debugPrint( "Unknown type: %d [%x]\n" % (datatype, pos))
         return (None, p, datatype, fieldnum, 1);
 
 # check data to see if it is a valid sub object or a string
@@ -197,12 +214,12 @@ def readField(d, pos):
 def isString(d):
     try :
         readField(d, 0) 
-        print "is string managed to read as field" 
+        debugPrint( "is string managed to read as field" )
         
         return 0 
     except:
-        print "exception when testing field - probably a string"
-        print traceback.print_exc()
+        debugPrint( "exception when testing field - probably a string")
+        debugPrint( traceback.print_exc())
         return 1
 
 def logOutput(string, filestream = None):
@@ -220,28 +237,41 @@ def PrintObject(obj, level=0, filestream = None):
         logOutput( s + "}", filestream)
         return
     elif type(obj.value) == list:
-        #print s + "%i object @%i {" % (obj.fieldid, obj.position)
-        logOutput(s + "'" + str(obj.fieldid) + "' : {", filestream)
+        if args.jsonOut:
+            logOutput(s + "'" + str(obj.fieldid) + "' : {", filestream)
+        else: 
+            print s + "%i object @%i-%i {" % (obj.fieldid, obj.position, obj.position + obj.length)
         for o in obj.value:
             PrintObject(o, level+2, filestream)
-        logOutput (s + "}")
+        if args.jsonOut:
+            logOutput (s + "}")
+        else:
+            print s+"}"
         return
      
     # primitives
     outStr = s   
     if type(obj.value) == str:
         
-        print s + "%i string @%i: %s" % (obj.fieldid, obj.position, obj.value)
-        logOutput(s + "'" + str(obj.fieldid) + "' : '" + obj.value + "'", filestream)
+        if args.jsonOut: 
+            logOutput(s + "'" + str(obj.fieldid) + "' : '" + obj.value + "'", filestream)
+        else:
+            print s + "%i string @%i-%i: %s" % (obj.fieldid, obj.position,obj.position+obj.length, obj.value)
     elif type (obj.value) == int:
-        print s + "%i int: @%i: %i" % (obj.fieldid, obj.position, obj.value)
-        logOutput(s + "'" + str(obj.fieldid) + "' : " + str(obj.value), filestream )
+        if args.jsonOut: 
+            logOutput(s + "'" + str(obj.fieldid) + "' : " + str(obj.value), filestream )
+        else:
+            print s + "%i int: @%i-%i: %i" % (obj.fieldid, obj.position, obj.position + obj.length, obj.value)
     elif type (obj.value) == float:
-        print s + "%i float @%i: %.10f" % (obj.fieldid, obj.position, obj.value)
-        logOutput(s + "'" + str(obj.fieldid) + "' : " + str(obj.value), filestream )
+        if args.jsonOut: 
+            logOutput(s + "'" + str(obj.fieldid) + "' : " + str(obj.value), filestream )
+        else:
+            print s + "%i float @%i-%i: %.10f" % (obj.fieldid, obj.position, obj.position+obj.length, obj.value)
     elif type (obj.value) == long:
-        print s + "%i long @%i: %i" % (obj.fieldid, obj.position, obj.value)
-        logOutput(s + "'" + str(obj.fieldid) + "' : " + str(obj.value), filestream)
+        if args.jsonOut: 
+            logOutput(s + "'" + str(obj.fieldid) + "' : " + str(obj.value), filestream)
+        else:
+            print s + "%i long @%i-%i: %i" % (obj.fieldid, obj.position, obj.position+obj.length, obj.value)
     else:
         print type(obj.value)
 
@@ -282,8 +312,8 @@ if __name__ == "__main__":
 
     parser.add_argument("--outjson", help="dump data to json", dest="jsonOut", nargs="?")
 
-    
-
+    parser.add_argument("--debug", help="print debug messages", dest="debug", action="store_true")
+    parser.set_defaults(debug=False)
 
     args = parser.parse_args()
     # been given as hex byte string
