@@ -2,6 +2,7 @@ import sys
 import traceback
 import struct
 import argparse
+import json
 
 
 creationCount = 0
@@ -35,6 +36,23 @@ class Field:
         if type(self.value) != list:
             self.value = []
         self.value.append(child)
+
+    def getMetaData(self):
+        out = {}
+        out["id"] = self.fieldid
+        out["pos"] = self.position
+        out["len"] = self.length
+        out["type"] = self.datatype
+        
+        subs = [] 
+        # now the child objects
+        if type(self.value) == list:
+            for obj in self.value:
+                subs.append(obj.getMetaData())
+            out["subs"] = subs
+        return out
+            
+                
 
 
 
@@ -315,6 +333,9 @@ if __name__ == "__main__":
     parser.add_argument("--debug", help="print debug messages", dest="debug", action="store_true")
     parser.set_defaults(debug=False)
 
+    parser.add_argument("--metadata", help="generate a metadata file", dest="metadata", action="store_true")
+    parser.set_defaults(metadata=False)
+
     args = parser.parse_args()
     # been given as hex byte string
     if args.inString != None: 
@@ -336,3 +357,20 @@ if __name__ == "__main__":
         ParseString(data)
 
     PrintObjects(outputObject, jsonFile=args.jsonOut)
+    if args.metadata == True:
+        print "Generating METADATA -----------"
+        metaout = "{"
+        first = True
+        for obj in outputObject:
+            if first:
+                First = False
+            else :
+                metaOut += "," 
+            metaout += json.dumps(obj.getMetaData())
+        metaout += "}"
+        fname = "metadata.txt"
+        if args.jsonOut != None:
+            fname = args.jsonOut + ".meta"
+        f = open(fname, "w")
+        f.write(metaout)
+        f.close() 
